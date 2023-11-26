@@ -318,12 +318,12 @@ class Encoder(nn.Module):
         if len(self.cnn_keys) > 0:
             # build cnn blocks
             self._cnn_modules = OrderedDict()
-            channels = {k: self._shapes[k][-1] for k in self.cnn_keys}
-            input_depth = self._shapes['image'][2]  # a image has three channels
+            channels = {k: self._shapes[k][0] for k in self.cnn_keys}
+            input_depth = self._shapes['image'][0]  # a image has three channels
             input_dim = [0, 0, 0]
-            input_dim[0] = self._shapes['image'][2]
-            input_dim[1] = self._shapes['image'][0]
-            input_dim[2] = self._shapes['image'][1]
+            input_dim[0] = self._shapes['image'][0]
+            input_dim[1] = self._shapes['image'][1]
+            input_dim[2] = self._shapes['image'][2]
 
             for i, kernel in enumerate(self._cnn_kernels):
                 depth = 2 ** i * self._cnn_depth
@@ -417,7 +417,7 @@ class Decoder(nn.Module):
         if self.cnn_keys:
             # build cnn blocks
             self._cnn_modules = OrderedDict()
-            channels = {k: self._shapes[k][-1] for k in self.cnn_keys}
+            channels = {k: self._shapes[k][0] for k in self.cnn_keys}
             ConvT = nn.ConvTranspose2d
             self._cnn_modules['convin'] = nn.Linear(input_size, 32 * self._cnn_depth)
             self._cnn_modules['unflatten_inpnut'] = nn.Unflatten(2, (32 * self._cnn_depth, 1, 1))
@@ -463,7 +463,7 @@ class Decoder(nn.Module):
             self._mlp_out = nn.ModuleDict(self._mlp_out)
 
     def forward(self, features):
-        channels = {k: self._shapes[k][-1] for k in self.cnn_keys}
+        channels = {k: self._shapes[k][0] for k in self.cnn_keys}
         outputs = {}
         if self.cnn_keys:
             # outputs.update(self._cnn(features))
@@ -488,7 +488,6 @@ class Decoder(nn.Module):
             outputs.update(mlp_dists)
 
         return outputs
-
 
 
 class MLP(nn.Module):
@@ -613,3 +612,9 @@ def get_act(name):
         return nn.ELU
     else:
         raise NotImplementedError(name)
+
+
+
+
+
+

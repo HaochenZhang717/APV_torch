@@ -36,30 +36,18 @@ class RandomAgent:
         return output, None
 
 def static_scan(fn, inputs, start, reverse=False):
-    # def my_nest_flatten(tuple_of_dict):
-    #     output_list = []
-    #     for dict_in_tuple in tuple_of_dict:
-    #         keys_in_dict = list(dict_in_tuple.keys())
-    #         for key_in_dict in sorted(keys_in_dict):
-    #             output_list.append(dict_in_tuple[key_in_dict])
-    #     return output_list
     last = start
     outputs = [[] for _ in tf_nest.flatten(start)]
-    indices = range(inputs[0].size(0))
+    indices = range(tf_nest.flatten(inputs)[0].size(0))
     if reverse:
         indices = reversed(indices)
     for index in indices:
-        # inp = []
-        # for inputs_dic in inputs:
-        #     inp.append(inputs_dic[index])
-        # inp = tuple(inp)
         inp = tf_nest.map_structure(lambda x: x[index], inputs)
         last = fn(last, inp)
         [o.append(l) for o, l in zip(outputs, tf_nest.flatten(last))]
     if reverse:
         outputs = [list(reversed(x)) for x in outputs]
     outputs = [torch.stack(x, 0) for x in outputs]
-
     return tf_nest.pack_sequence_as(start, outputs)
 
 

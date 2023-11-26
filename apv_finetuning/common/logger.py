@@ -131,7 +131,7 @@ class TensorBoardOutput:
         if np.issubdtype(video.dtype, np.floating):
             video = np.clip(255 * video, 0, 255).astype(np.uint8)
         try:
-            T, H, W, C = video.shape
+            T, C, H, W = video.shape
             summary = tf1.Summary()
             image = tf1.Summary.Image(height=H, width=W, colorspace=C)
             image.encoded_image_string = encode_gif(video, self._fps)
@@ -145,7 +145,7 @@ class TensorBoardOutput:
 def encode_gif(frames, fps):
     from subprocess import Popen, PIPE
 
-    h, w, c = frames[0].shape
+    c, h, w = frames[0].shape
     pxfmt = {1: "gray", 3: "rgb24"}[c]
     cmd = " ".join(
         [

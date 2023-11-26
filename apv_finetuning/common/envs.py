@@ -225,6 +225,7 @@ class DMC:
             "is_terminal": time_step.discount == 0,
             "image": self._env.physics.render(*self._size, camera_id=self._camera),
         }
+        obs["image"] = np.transpose(obs["image"], (2, 0, 1))
         obs.update(
             {
                 k: v
@@ -243,6 +244,7 @@ class DMC:
             "is_terminal": False,
             "image": self._env.physics.render(*self._size, camera_id=self._camera),
         }
+        obs["image"] = np.transpose(obs["image"], (2, 0, 1))
         obs.update(
             {
                 k: v

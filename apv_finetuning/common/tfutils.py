@@ -139,7 +139,8 @@ class Optimizer(object):
 
         # gradient backward and gradient clipping
         self._opt.zero_grad()
-        loss.backward(retain_graph=retain_graph)
+        # loss.backward(retain_graph=retain_graph)
+        loss.backward()
         if self._clip is not None:
             torch.nn.utils.clip_grad_norm_(self._model_params, self._clip)
         self._opt.step()

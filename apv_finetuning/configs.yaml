@@ -1,7 +1,7 @@
 defaults:
 
   # Train Script
-  logdir: /home/hchen/apv_remote/apv_finetuning/dev/null
+  logdir: /home/hchen/apv_pytorch_remote/apv_finetuning/dev/null
   load_logdir: none
   seed: 0
   task: dmc_walker_walk

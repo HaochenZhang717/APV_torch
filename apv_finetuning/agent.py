@@ -36,6 +36,7 @@ class Agent(object):
 
     def policy(self, obs, state=None, mode="train"):
         obs = tf_nest.map_structure(torch.Tensor, obs)
+        obs = tf_nest.map_structure(lambda x: x.cuda(), obs)
         # tf.py_function(
         #     lambda: self.tfstep.assign(int(self.step), read_value=False), [], []
         # )
@@ -45,9 +46,10 @@ class Agent(object):
             latent = self.wm.rssm.initial(len(obs["reward"]))
             af_latent = self.wm.af_rssm.initial(len(obs["reward"]))
             action = torch.zeros(tuple([len(obs["reward"])]) +
-                                 tuple(self.act_space.size()))
+                                 self.act_space.shape)
             state = af_latent, latent, action
-        af_latent, latent, action = state
+
+        af_latent, latent, action = tf_nest.map_structure(lambda x: x.cuda(), state)
 
         af_sample = (mode == "train") or not self.config.eval_state_mean
         embed = self.wm.encoder(self.wm.preprocess(obs))
@@ -64,11 +66,11 @@ class Agent(object):
         feat = self.wm.rssm.get_feat(latent)
         if mode == "eval":
             actor = self._task_behavior.actor(feat)
-            action = actor.mode()
+            action = actor.mode
             noise = self.config.eval_noise
         elif mode == "explore":
             actor = self._expl_behavior.actor(feat)
-            action = actor.sample()
+            action = actor.sample()# sample or rsample?
             noise = self.config.expl_noise
         elif mode == "train":
             actor = self._task_behavior.actor(feat)
@@ -92,6 +94,14 @@ class Agent(object):
         if self.config.expl_behavior != "greedy":
             mets = self._expl_behavior.train(start, outputs, data)[-1]
             metrics.update({"expl_" + key: value for key, value in mets.items()})
+        assert not state['deter0'].requires_grad
+        assert not state['logit'].requires_grad
+        assert not state['stoch'].requires_grad
+
+        for k, v in metrics.items():
+            if isinstance(v, torch.Tensor):
+                metrics[k] = v.detach().cpu()
+
         return state, metrics
 
     def report(self, data):
@@ -100,10 +110,23 @@ class Agent(object):
         for key in self.wm.heads["decoder"].cnn_keys:
             name = key.replace("/", "_")
             report[f"openl_{name}"] = self.wm.video_pred(data, key)
+
+        for k, v in report.items():
+            if isinstance(v, torch.Tensor):
+                report[k] = v.detach().cpu()
         return report
 
     def save_all(self, logdir):
-        raise NotImplementedError("not write this yet")
+        # raise NotImplementedError("not write this yet")
+        torch.save({"rssm_variables": self.wm.rssm.state_dict()}, logdir / "rssm_variables.pt")
+        torch.save({"af_rssm_variables": self.wm.af_rssm.state_dict()}, logdir / "af_rssm_variables.pt")
+        torch.save({"encoder_variables": self.wm.encoder.state_dict()}, logdir / "encoder_variables.pt")
+        torch.save({"decoder_variables": self.wm.heads["decoder"].state_dict()}, logdir / "decoder_variables.pt")
+        torch.save({"reward_variables": self.wm.heads["reward"].state_dict()}, logdir / "reward_variables.pt")
+
+        torch.save({"actor_variables": self._task_behavior.actor.state_dict()}, logdir / "actor_variables.pt")
+        torch.save({"critic_variables": self._task_behavior.critic.state_dict()}, logdir / "critic_variables.pt")
+
         # self.save(logdir / "variables.pkl")
         # self.wm.af_rssm.save(logdir / "af_rssm_variables.pkl", verbose=False)
         # self.wm.rssm.save(logdir / "rssm_variables.pkl", verbose=False)
@@ -334,6 +357,8 @@ class WorldModel(object):
     def __init__(self, config, obs_space, tfstep):
         super().__init__()
         shapes = {k: tuple(v.shape) for k, v in obs_space.items()}
+        if 'image' in shapes.keys():
+            shapes['image'] = (shapes['image'][2], shapes['image'][0], shapes['image'][1])
         self.config = config
         self.tfstep = tfstep
 
@@ -419,9 +444,14 @@ class WorldModel(object):
 
         state = sg(state)
         outputs = sg(outputs)
+        for k, v in metrics.items():
+            if isinstance(v, torch.Tensor):
+                metrics[k] = v.detach()
+
         return state, outputs, metrics
 
     def loss(self, data, state=None):# the same as loss
+        detach_structure = lambda y: tf_nest.map_structure(lambda x: x.detach(), y)
         data = self.preprocess(data)
         embed = self.encoder(data) # z_t
         af_post, af_prior = self.af_rssm(
@@ -465,7 +495,7 @@ class WorldModel(object):
 
         ###############################################################################
         for name, head in self.heads.items():
-            print(name)
+            # print(name)
             grad_head = name in self.config.grad_heads
             inp = feat if grad_head else feat.detach().clone()
             if name == "reward":
@@ -473,7 +503,7 @@ class WorldModel(object):
             out = head(inp)
             dists = out if isinstance(out, dict) else {name: out}
             for key, dist in dists.items():
-                print(key)
+                # print(key)
                 like = dist.log_prob(data[key]).type(torch.float32)
                 likes[key] = like
                 losses[key] = -like.mean()
@@ -490,7 +520,7 @@ class WorldModel(object):
         metrics["post_ent"] = self.rssm.get_dist(post).entropy().mean()
         metrics.update(**int_rew_mets)
         last_state = {k: v[:, -1] for k, v in post.items()}
-        return model_loss, last_state, outs, metrics
+        return model_loss, detach_structure(last_state), detach_structure(outs), detach_structure(metrics)
 
     def imagine(self, policy, start, is_terminal, horizon):
         flatten = lambda x: x.reshape(tuple([-1] + list(x.size()[2:])))
@@ -548,21 +578,44 @@ class WorldModel(object):
 
         return obs
 
+    # def video_pred(self, data, key):
+        # decoder = self.heads["decoder"]
+        # truth = data[key][:6] + 0.5
+        # embed = self.encoder(data)
+        # states, _ = self.rssm(embed[:6, :5], data["is_first"][:6, :5])
+        # recon = decoder(self.rssm.get_feat(states))[key].mode[:6]
+        # init = {k: v[:, -1] for k, v in states.items()}
+        # prior = self.rssm.imagine(data["is_first"][:6, 5:], init)
+        # openl = decoder(self.rssm.get_feat(prior))[key].mode
+        # model = torch.concat((recon[:, :5] + 0.5, openl + 0.5), 1)
+        # error = (model - truth + 1) / 2
+        # video = torch.concat((truth, model, error), 3)
+        # video = torch.permute(video, (0, 1, 3, 4, 2))
+        # B, T, H, W, C = video.size()
+        # return torch.permute(video, (1, 2, 0, 3, 4)).reshape((T, H, B * W, C))
+
     def video_pred(self, data, key):
         decoder = self.heads["decoder"]
         truth = data[key][:6] + 0.5
         embed = self.encoder(data)
-        states, _ = self.rssm(embed[:6, :5], data["is_first"][:6, :5])
+        af_post, _ = self.af_rssm(embed, data["action"], data["is_first"])
+        af_embed = self.af_rssm.get_feat(af_post)
+        if self.config.concat_embed:
+            af_embed = torch.concat((embed, af_embed), -1)
+        states, _ = self.rssm(
+            af_embed[:6, :5], data["action"][:6, :5], data["is_first"][:6, :5]
+        )
         recon = decoder(self.rssm.get_feat(states))[key].mode[:6]
         init = {k: v[:, -1] for k, v in states.items()}
-        prior = self.rssm.imagine(data["is_first"][:6, 5:], init)
+        prior = self.rssm.imagine(data["action"][:6, 5:], init)
         openl = decoder(self.rssm.get_feat(prior))[key].mode
         model = torch.concat((recon[:, :5] + 0.5, openl + 0.5), 1)
         error = (model - truth + 1) / 2
         video = torch.concat((truth, model, error), 3)
-        video = torch.permute(video, (0, 1, 3, 4, 2))
-        B, T, H, W, C = video.size()
-        return torch.permute(video, (1, 2, 0, 3, 4)).reshape((T, H, B * W, C))
+        # video = torch.permute(video, (0, 1, 3, 4, 2))
+        B, T, C, H, W = video.shape
+        return torch.permute(video, (1, 2, 3, 0, 4)).reshape((T, C, H, B * W))
+
 
     def save(self, logdir):
         torch.save({"rssm_variables": self.rssm.state_dict()}, logdir / "rssm_variables.pt")

@@ -6,6 +6,7 @@ import pathlib
 import re
 import sys
 import warnings
+import torch
 
 try:
     import rich.traceback
@@ -26,9 +27,11 @@ import ruamel.yaml as yaml
 
 import agent
 import common
+import torch
 
 
 def main():
+    print(f"allocated memory: {torch.cuda.memory_allocated(0)}")
 
     configs = yaml.safe_load(
         (pathlib.Path(sys.argv[0]).parent / "configs.yaml").read_text()
@@ -51,7 +54,6 @@ def main():
         load_logdir = pathlib.Path(config.load_logdir).expanduser()
         print("Loading Logdir", load_logdir)
 
-    import torch
     message = "No GPU found. To actually train on CPU remove this assert."
     assert torch.cuda.is_available(), message
 
@@ -200,8 +202,6 @@ def main():
                 agnt.wm.heads["decoder"].load(load_logdir / "decoder_variables.pkl")
         print("Pretrain agent.")
 
-        # for _ in range(config.pretrain):
-        #     train_agent(next(train_dataset)) #I annotate it for faster debug
         for _ in range(config.pretrain):
             train_agent(train_dataset())  # I annotate it for faster debug
 
@@ -233,6 +233,7 @@ def main():
         eval_driver(eval_policy, episodes=config.eval_eps)
         print("Start training.")
         train_driver(train_policy, steps=config.eval_every)
+        print(f"allocated memory: {torch.cuda.memory_allocated(0)}")
         agnt.save_all(logdir)
     for env in train_envs + eval_envs:
         try:

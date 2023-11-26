@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 
 class Driver:
@@ -34,6 +35,13 @@ class Driver:
                 for i, ob in enumerate(self._obs)
                 if ob is None or ob["is_last"]
             }
+            # if len(obs) != 1:
+                # raise NotImplementedError
+            # for i in range(len(obs)):
+                # obs[i]['image'] = np.transpose(obs[i]['image'], (2, 0, 1))
+                # for k, v in obs[i].items():
+                #         obs[i][k] = torch.tensor(v)
+
             for i, ob in obs.items(): #obs=={0: obs}
             # ob is a dictionary with 8 keys
             # 'reward', 'is_first', 'is_last', 'is_terminal', 'image', 'orientations', 'height', 'velocity'
@@ -44,8 +52,9 @@ class Driver:
                 self._eps[i] = [tran]
             obs = {k: np.stack([o[k] for o in self._obs]) for k in self._obs[0]}
             actions, self._state = policy(obs, self._state, **self._kwargs)
+
             actions = [
-                {k: np.array(actions[k][i]) for k in actions}
+                {k: np.array(actions[k][i].detach().cpu()) for k in actions}
                 for i in range(len(self._envs))
             ]
             assert len(actions) == len(self._envs)

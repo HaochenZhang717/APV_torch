@@ -130,7 +130,7 @@ class Replay:
         if self._maxlen:
             assert self._minlen <= len(sequence["reward"]) <= self._maxlen
 
-        sequence['image'] = np.transpose(sequence['image'], (0, 3, 1, 2))
+        # sequence['image'] = np.transpose(sequence['image'], (0, 3, 1, 2))
         return sequence
 
     def _enforce_limit(self):
@@ -161,7 +161,7 @@ class get_one_batch(object):
                 one_batch[k].append(v)
 
         for k, v in one_batch.items():
-            one_batch[k] = torch.from_numpy(np.stack(one_batch[k], dtype=np.float32))
+            one_batch[k] = torch.from_numpy(np.stack(one_batch[k]))
             if torch.cuda.is_available():
                 one_batch[k] = one_batch[k].cuda()
 
